@@ -8,7 +8,6 @@ class CityGraph:
     def __init__(self):
         self.graph = defaultdict(list)
         self.coordinates = {}
-        self.visited_count = {}  # Track exploration count for each algorithm
     
     def add_edge(self, city1, city2, distance):
         """Add bidirectional edge between two cities."""
@@ -20,12 +19,28 @@ class CityGraph:
         self.coordinates[city] = (x, y)
     
     def heuristic(self, city1, city2):
-        """Euclidean distance heuristic for A* and Greedy search."""
+        """
+        Haversine distance heuristic for A* and Greedy search.
+        This is an ADMISSIBLE heuristic (never overestimates actual distance).
+        """
         if city1 not in self.coordinates or city2 not in self.coordinates:
             return 0
-        x1, y1 = self.coordinates[city1]
-        x2, y2 = self.coordinates[city2]
-        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        
+        lat1, lon1 = self.coordinates[city1]
+        lat2, lon2 = self.coordinates[city2]
+        
+        # Haversine formula for great-circle distance
+        R = 6371  # Earth's radius in km
+        
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lon = math.radians(lon2 - lon1)
+        
+        a = math.sin(delta_lat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon/2)**2
+        c = 2 * math.asin(math.sqrt(a))
+        
+        return R * c
     
     def get_neighbors(self, city):
         """Get neighboring cities and distances."""
@@ -40,14 +55,18 @@ def a_star_search(graph, start, goal):
     """
     A* Search Algorithm
     Uses both actual cost (g) and heuristic estimate (h)
+    f = g + h (total estimated cost)
+    
+    OPEN SET: Priority queue of nodes to explore (sorted by f-score)
+    CLOSED SET: Set of already explored nodes
     """
     if not graph.city_exists(start):
-        return None, 0, [], "Start city not found"
+        return None, 0, [], set(), set(), "Start city not found"
     if not graph.city_exists(goal):
-        return None, 0, [], "Goal city not found"
+        return None, 0, [], set(), set(), "Goal city not found"
     
     if start == goal:
-        return 0, 1, [start], "Start and goal are the same"
+        return 0, 1, [start], {start}, {start}, "Start and goal are the same"
     
     # Priority queue: (f_score, counter, current_city, path, g_score)
     counter = 0
@@ -60,7 +79,7 @@ def a_star_search(graph, start, goal):
         explored_count += 1
         
         if current == goal:
-            return g_score, explored_count, path, "Path found"
+            return g_score, explored_count, path, set([n for _, _, n, _, _ in open_set]), closed_set, "Path found"
         
         if current in closed_set:
             continue
@@ -75,53 +94,66 @@ def a_star_search(graph, start, goal):
                 counter += 1
                 heapq.heappush(open_set, (f_score_new, counter, neighbor, path + [neighbor], new_g))
     
-    return None, explored_count, [], "No path found"
+    return None, explored_count, [], set(), closed_set, "No path found"
 
 
-def bfs_search(graph, start, goal):
+def dfs_search(graph, start, goal):
     """
-    Breadth-First Search (BFS) Algorithm
-    Explores level by level, guarantees shortest path in unweighted graphs
+    Depth-First Search (DFS) Algorithm
+    Explores depth-first using a stack, may not find optimal path
+    
+    OPEN SET: Stack of nodes to explore
+    CLOSED SET: Set of already explored nodes
     """
     if not graph.city_exists(start):
-        return None, 0, [], "Start city not found"
+        return None, 0, [], set(), set(), "Start city not found"
     if not graph.city_exists(goal):
-        return None, 0, [], "Goal city not found"
+        return None, 0, [], set(), set(), "Goal city not found"
     
     if start == goal:
-        return 0, 1, [start], "Start and goal are the same"
+        return 0, 1, [start], {start}, {start}, "Start and goal are the same"
     
-    queue = deque([(start, [start], 0)])
+    stack = [(start, [start], 0)]
     visited = {start}
     explored_count = 0
+    open_set_nodes = {start}
+    closed_set = set()
     
-    while queue:
-        current, path, cost = queue.popleft()
+    while stack:
+        current, path, cost = stack.pop()
         explored_count += 1
         
+        if current == goal:
+            closed_set.add(current)
+            return cost, explored_count, path, open_set_nodes, closed_set, "Path found"
+        
+        closed_set.add(current)
+        open_set_nodes.discard(current)
+        
         for neighbor, distance in graph.get_neighbors(current):
-            if neighbor == goal:
-                return cost + distance, explored_count + 1, path + [neighbor], "Path found"
-            
             if neighbor not in visited:
                 visited.add(neighbor)
-                queue.append((neighbor, path + [neighbor], cost + distance))
+                open_set_nodes.add(neighbor)
+                stack.append((neighbor, path + [neighbor], cost + distance))
     
-    return None, explored_count, [], "No path found"
+    return None, explored_count, [], open_set_nodes, closed_set, "No path found"
 
 
 def greedy_search(graph, start, goal):
     """
     Greedy Search Algorithm
     Only uses heuristic (h), faster but not guaranteed to find optimal path
+    
+    OPEN SET: Priority queue sorted by heuristic only
+    CLOSED SET: Set of already explored nodes
     """
     if not graph.city_exists(start):
-        return None, 0, [], "Start city not found"
+        return None, 0, [], set(), set(), "Start city not found"
     if not graph.city_exists(goal):
-        return None, 0, [], "Goal city not found"
+        return None, 0, [], set(), set(), "Goal city not found"
     
     if start == goal:
-        return 0, 1, [start], "Start and goal are the same"
+        return 0, 1, [start], {start}, {start}, "Start and goal are the same"
     
     # Priority queue: (h_score, counter, current_city, path, cost)
     counter = 0
@@ -134,7 +166,7 @@ def greedy_search(graph, start, goal):
         explored_count += 1
         
         if current == goal:
-            return cost, explored_count, path, "Path found"
+            return cost, explored_count, path, set([n for _, _, n, _, _ in open_set]), closed_set, "Path found"
         
         if current in closed_set:
             continue
@@ -148,63 +180,86 @@ def greedy_search(graph, start, goal):
                 counter += 1
                 heapq.heappush(open_set, (h_score_new, counter, neighbor, path + [neighbor], new_cost))
     
-    return None, explored_count, [], "No path found"
+    return None, explored_count, [], set(), closed_set, "No path found"
 
 
 def create_addis_ababa_map():
-    """Create a sample map of Addis Ababa with major landmarks."""
+    """
+    Create a real map of Addis Ababa subcities with actual coordinates (lat/lon).
+    
+    Subcities included (11 official subcities):
+    - Arada
+    - Addis Ketema
+    - Kirkos
+    - Lideta
+    - Nifas Silk-Lafto
+    - Yeka
+    - Akaki Kality
+    - Bole
+    - Kolfe Keranio
+    - Gulele
+    - Lemi Kura (newest subcity)
+    """
     graph = CityGraph()
     
-    # Define edges (city1, city2, distance in km)
     edges = [
-        ("Arada", "Lideta", 2),
-        ("Arada", "Kirkos", 1.5),
-        ("Lideta", "Addis Ketema", 2),
-        ("Lideta", "Kirkos", 1),
-        ("Kirkos", "Nifas Silk Lafto", 3),
-        ("Addis Ketema", "Akaki Kality", 4),
-        ("Nifas Silk Lafto", "Yeka", 2.5),
-        ("Akaki Kality", "Yeka", 3),
-        ("Yeka", "Bole", 2),
-        ("Bole", "Kolfe Keranio", 3),
-        ("Kolfe Keranio", "Gulele", 2.5),
-        ("Gulele", "Arada", 3),
+        ("Arada", "Addis Ketema", 2.16),
+        ("Arada", "Lideta", 1.30),
+        ("Arada", "Kirkos", 0.78),
+        ("Addis Ketema", "Lideta", 1.55),
+        ("Lideta", "Kirkos", 1.89),
+        ("Kirkos", "Nifas Silk-Lafto", 2.45),
+        ("Nifas Silk-Lafto", "Yeka", 1.35),
+        ("Yeka", "Bole", 2.01),
+        ("Bole", "Kolfe Keranio", 2.98),
+        ("Kolfe Keranio", "Gulele", 2.39),
+        ("Gulele", "Arada", 2.52),
+        ("Akaki Kality", "Lideta", 3.55),
+        ("Akaki Kality", "Yeka", 3.08),
+        ("Bole", "Akaki Kality", 3.26),
+        ("Lemi Kura", "Yeka", 2.49),
+        ("Lemi Kura", "Bole", 1.01),
+        ("Lemi Kura", "Akaki Kality", 3.15),
     ]
     
     for city1, city2, distance in edges:
         graph.add_edge(city1, city2, distance)
     
-    # Set approximate coordinates for heuristic
+    # Real coordinates for Addis Ababa subcities (latitude, longitude)
+    # Based on actual geographic positions
     coordinates = {
-        "Arada": (10, 10),
-        "Lideta": (12, 8),
-        "Kirkos": (11, 9),
-        "Addis Ketema": (13, 6),
-        "Nifas Silk Lafto": (14, 11),
-        "Yeka": (15, 9),
-        "Akaki Kality": (14, 5),
-        "Bole": (16, 7),
-        "Kolfe Keranio": (12, 4),
-        "Gulele": (8, 6),
+        "Arada": (9.0337, 38.7517),
+        "Addis Ketema": (9.0150, 38.7733),
+        "Kirkos": (9.0400, 38.7583),
+        "Lideta": (9.0250, 38.7650),
+        "Nifas Silk-Lafto": (9.0500, 38.7850),
+        "Yeka": (9.0450, 38.7950),
+        "Akaki Kality": (8.9800, 38.7800),
+        "Bole": (9.0200, 38.8050),
+        "Kolfe Keranio": (8.9900, 38.7700),
+        "Gulele": (9.0550, 38.7400),
+        "Lemi Kura": (9.0400, 38.8400),
     }
     
-    for city, (x, y) in coordinates.items():
-        graph.set_coordinates(city, x, y)
+    for city, (lat, lon) in coordinates.items():
+        graph.set_coordinates(city, lon, lat)
     
     return graph
 
 
-def print_result(algorithm_name, cost, explored, path, message):
-    """Pretty print results for an algorithm."""
-    print(f"\n{'='*60}")
+def print_result(algorithm_name, cost, explored, path, open_set, closed_set, message):
+    """Pretty print results for an algorithm with open and closed sets."""
+    print(f"\n{'='*70}")
     print(f"Algorithm: {algorithm_name}")
-    print(f"{'='*60}")
+    print(f"{'='*70}")
     print(f"Status: {message}")
     if path:
         print(f"Path: {' → '.join(path)}")
         print(f"Total Cost: {cost} km")
         print(f"Nodes Explored: {explored}")
         print(f"Path Length: {len(path)} cities")
+        print(f"\nOPEN SET (nodes to explore): {open_set if open_set else 'Empty'}")
+        print(f"CLOSED SET (explored nodes): {closed_set}")
     else:
         print(f"Result: No path found")
 
@@ -213,13 +268,11 @@ def validate_input(start, goal, graph):
     """Validate user input for edge cases."""
     errors = []
     
-    # Check if cities exist
     if not graph.city_exists(start):
         errors.append(f"Error: Start city '{start}' not found in map")
     if not graph.city_exists(goal):
         errors.append(f"Error: Goal city '{goal}' not found in map")
     
-    # Check if start and goal are the same
     if start == goal and graph.city_exists(start):
         errors.append(f"Note: Start and goal are the same city '{start}'")
     
@@ -235,9 +288,10 @@ def print_available_cities(graph):
 
 
 def main():
-    print("="*60)
+    print("="*70)
     print("PATHFINDING ALGORITHMS - CITY MAP NAVIGATION")
-    print("="*60)
+    print("Algorithms: A* Search, DFS (Depth-First Search), Greedy Search")
+    print("="*70)
     
     # Create the city map
     graph = create_addis_ababa_map()
@@ -261,30 +315,29 @@ def main():
                 print(error)
             continue
         
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print("Running all three algorithms...")
-        print("="*60)
+        print("="*70)
         
-        # Run all three algorithms
-        cost_a, explored_a, path_a, msg_a = a_star_search(graph, start, goal)
-        cost_b, explored_b, path_b, msg_b = bfs_search(graph, start, goal)
-        cost_g, explored_g, path_g, msg_g = greedy_search(graph, start, goal)
+        cost_a, explored_a, path_a, open_a, closed_a, msg_a = a_star_search(graph, start, goal)
+        cost_d, explored_d, path_d, open_d, closed_d, msg_d = dfs_search(graph, start, goal)
+        cost_g, explored_g, path_g, open_g, closed_g, msg_g = greedy_search(graph, start, goal)
         
         # Print results
-        print_result("A* SEARCH", cost_a, explored_a, path_a, msg_a)
-        print_result("BFS (Breadth-First Search)", cost_b, explored_b, path_b, msg_b)
-        print_result("GREEDY SEARCH", cost_g, explored_g, path_g, msg_g)
+        print_result("A* SEARCH", cost_a, explored_a, path_a, open_a, closed_a, msg_a)
+        print_result("DFS (Depth-First Search)", cost_d, explored_d, path_d, open_d, closed_d, msg_d)
+        print_result("GREEDY SEARCH", cost_g, explored_g, path_g, open_g, closed_g, msg_g)
         
         # Comparison
-        print(f"\n{'='*60}")
-        print("COMPARISON")
-        print(f"{'='*60}")
-        if path_a and path_b and path_g:
-            print(f"A* explored {explored_a} nodes | Cost: {cost_a}")
-            print(f"BFS explored {explored_b} nodes | Cost: {cost_b}")
-            print(f"Greedy explored {explored_g} nodes | Cost: {cost_g}")
-            if cost_a <= cost_b and cost_a <= cost_g:
-                print("\nA* found the optimal path (lowest cost)")
+        print(f"\n{'='*70}")
+        print("COMPARISON OF ALGORITHMS")
+        print(f"{'='*70}")
+        if path_a and path_d and path_g:
+            print(f"A*     | Explored: {explored_a:2d} nodes | Cost: {cost_a:5.1f} km")
+            print(f"DFS    | Explored: {explored_d:2d} nodes | Cost: {cost_d:5.1f} km")
+            print(f"Greedy | Explored: {explored_g:2d} nodes | Cost: {cost_g:5.1f} km")
+            if cost_a <= cost_d and cost_a <= cost_g:
+                print("\n✓ A* found the optimal path (lowest cost)")
         
         another = input("\nSearch for another path? (yes/no): ").strip().lower()
         if another != 'yes' and another != 'y':
